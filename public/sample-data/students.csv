@@ -1,0 +1,6 @@
+student_id,first_name,last_name,group_name,general_note,active
+student_1,יואב,כהן,קבוצה א,מתקדם יפה,1
+student_2,נועה,לוי,קבוצה א,,1
+student_3,דוד,מזרחי,קבוצה א,צריך חיזוק ברכיבה אחורה,1
+student_4,שרה,פרץ,קבוצה ב,,1
+student_5,איתי,דהן,קבוצה ב,מצוין השבוע,1

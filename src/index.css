@@ -1,0 +1,48 @@
+/* Design tokens – calm, dopamine-friendly, long-term use */
+:root {
+  --color-cream: #F6F4EF;
+  --color-sand: #ECE7DF;
+  --color-charcoal: #2F2F2F;
+  --color-muted: #6E6E6E;
+  --color-sage: #6FAF9A;
+  --color-terracotta: #D28B68;
+  --color-terracotta-hover: #c07d5a;
+  --color-sky-blue: #8FB9C8;
+  --color-instructor: #3D5A80;
+  --color-parent: #C98B5E;
+  --color-danger-soft: #c49590;
+  --color-danger-hover: #b8847e;
+  --color-primary: #6FAF9A;
+  --color-primary-hover: #7ebda8;
+  --shadow-soft: 0 2px 12px rgba(47, 47, 47, 0.04);
+  --shadow-card: 0 4px 20px rgba(47, 47, 47, 0.06);
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-full: 999px;
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 0.75rem;
+  --space-lg: 1rem;
+  --space-xl: 1.5rem;
+  --space-2xl: 2rem;
+  --transition-gentle: 0.2s ease;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: 'Nunito', system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  color: var(--color-soft-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
