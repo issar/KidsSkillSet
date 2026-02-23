@@ -1,5 +1,14 @@
 import { useState, useEffect } from 'react';
-import type { Skill, Student, AssessmentRow, Assessment, AssessmentPerspective, SkillScores, AppState, Lang } from '../types';
+import type {
+  Skill,
+  Student,
+  AssessmentRow,
+  Assessment,
+  AssessmentPerspective,
+  SkillScores,
+  AppState,
+  Lang,
+} from '../types';
 import { DEFAULT_SKILLS } from './skills';
 import {
   loadStateFromStorage,
@@ -12,6 +21,16 @@ import {
 
 export type StoreListener = () => void;
 const listeners: StoreListener[] = [];
+
+/**
+ * Storage key is user scoped.
+ * Call setStorageKeyForUser(userId) after login and before initStore().
+ */
+let storageKey = 'kidsskillset_state:anonymous';
+
+export function setStorageKeyForUser(userId: string | null | undefined): void {
+  storageKey = `kidsskillset_state:${userId ?? 'anonymous'}`;
+}
 
 let state: AppState = {
   skills: [...DEFAULT_SKILLS],
@@ -27,18 +46,27 @@ function getState(): AppState {
 
 function setState(partial: Partial<AppState>): void {
   state = { ...state, ...partial };
-  saveStateToStorage(state);
+  saveStateToStorage(storageKey, state);
   listeners.forEach((l) => l());
 }
 
 export function initStore(): void {
-  const stored = loadStateFromStorage();
-  state.skills = [...DEFAULT_SKILLS];
+  state = {
+    skills: [...DEFAULT_SKILLS],
+    students: [],
+    assessmentRows: [],
+    lang: 'he',
+    groupNames: [],
+  };
+
+  const stored = loadStateFromStorage(storageKey);
+  state.skills = stored?.skills?.length ? [...stored.skills] : [...DEFAULT_SKILLS];
   if (stored?.students?.length) state.students = stored.students;
   if (stored?.assessmentRows?.length) state.assessmentRows = stored.assessmentRows;
   if (stored?.lang) state.lang = stored.lang;
   if (stored?.groupNames?.length) state.groupNames = stored.groupNames;
-  saveStateToStorage(state);
+
+  saveStateToStorage(storageKey, state);
   listeners.forEach((l) => l());
 }
 
@@ -58,18 +86,15 @@ export function getStudents(): Student[] {
   return state.students.filter((s) => s.active !== '0');
 }
 
-/** Display name: full_name if set, else first_name + last_name */
 export function getStudentDisplayName(s: Student): string {
   if (s.full_name?.trim()) return s.full_name.trim();
   return [s.first_name, s.last_name].filter(Boolean).join(' ').trim() || '—';
 }
 
-/** Normalize for matching: trim, lowercase, collapse spaces */
 function normalizeMatchKey(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-/** Stable key for import matching: external_id if set, else normalized full name */
 export function getStudentMatchKey(s: Student): string {
   if (s.external_id?.trim()) return `id:${s.external_id.trim().toLowerCase()}`;
   const name = getStudentDisplayName(s);
@@ -82,12 +107,12 @@ export interface MergeStudentsResult {
   errors: number;
 }
 
-/** Merge imported students: match by external_id or normalized full_name. Existing students are never updated. */
 export function mergeStudents(imported: Student[]): MergeStudentsResult {
   const existingKeys = new Set(state.students.map((s) => getStudentMatchKey(s)));
   let added = 0;
   let skipped = 0;
   let errors = 0;
+
   const toAdd: Student[] = [];
   for (const s of imported) {
     const key = getStudentMatchKey(s);
@@ -102,10 +127,13 @@ export function mergeStudents(imported: Student[]): MergeStudentsResult {
     existingKeys.add(key);
     toAdd.push({
       ...s,
-      student_id: s.student_id?.trim() || `student_${Date.now()}_${added}_${Math.random().toString(36).slice(2, 9)}`,
+      student_id:
+        s.student_id?.trim() ||
+        `student_${Date.now()}_${added}_${Math.random().toString(36).slice(2, 9)}`,
     });
     added++;
   }
+
   if (toAdd.length) setState({ students: [...state.students, ...toAdd] });
   return { added, skipped, errors };
 }
@@ -122,13 +150,14 @@ export function setLang(lang: Lang): void {
   setState({ lang });
 }
 
-/** Get assessments for a student, grouped by assessment_id, sorted by date desc */
 export function getAssessmentsByStudent(studentId: string): Assessment[] {
   const rows = state.assessmentRows.filter((r) => r.student_id === studentId);
   const byId = new Map<string, Assessment>();
+
   for (const r of rows) {
     let a = byId.get(r.assessment_id);
-    const perspective = r.perspective ?? 'instructor'; // legacy rows → instructor
+    const perspective = r.perspective ?? 'instructor';
+
     if (!a) {
       a = {
         assessment_id: r.assessment_id,
@@ -139,57 +168,62 @@ export function getAssessmentsByStudent(studentId: string): Assessment[] {
       };
       byId.set(r.assessment_id, a);
     }
+
     const scores = perspective === 'parent' ? a.parent_scores : a.instructor_scores;
     scores[r.skill_id] = { score: r.score, note: r.note };
   }
+
   return Array.from(byId.values()).sort(
-    (a, b) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime()
+    (a, b) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime(),
   );
 }
 
-/** Last assessment date for a student */
 export function getLastAssessmentDate(studentId: string): string | null {
   const assessments = getAssessmentsByStudent(studentId);
   return assessments.length ? assessments[0].date_iso : null;
 }
 
-/** Get scores for display; prefers instructor, fallback to parent when perspective is 'auto' */
-export function getAssessmentScores(a: Assessment, perspective: AssessmentPerspective | 'auto'): SkillScores {
+export function getAssessmentScores(
+  a: Assessment,
+  perspective: AssessmentPerspective | 'auto',
+): SkillScores {
   if (perspective !== 'auto') {
     return perspective === 'parent' ? a.parent_scores : a.instructor_scores;
   }
+
   const hasInstructor = Object.keys(a.instructor_scores).some((k) => a.instructor_scores[k] != null);
   const hasParent = Object.keys(a.parent_scores).some((k) => a.parent_scores[k] != null);
+
   if (hasInstructor) return a.instructor_scores;
   if (hasParent) return a.parent_scores;
   return {};
 }
 
-/** Two lowest skills from the most recent assessment; prefers instructor, fallback to parent */
 function getScoresForDisplay(a: Assessment): SkillScores {
   return getAssessmentScores(a, 'auto');
 }
 
-/** Two lowest skills (by score) from the most recent assessment */
 export function getTwoLowestSkills(studentId: string): { skillId: string; score: number }[] {
   const assessments = getAssessmentsByStudent(studentId);
   if (!assessments.length) return [];
+
   const scores = getScoresForDisplay(assessments[0]);
   const entries = Object.entries(scores)
     .map(([skillId, { score }]) => ({ skillId, score }))
     .sort((x, y) => x.score - y.score);
+
   return entries.slice(0, 2);
 }
 
-/** Radar data for a specific perspective */
 export function getRadarDataForAssessment(
   assessment: Assessment,
   skills: Skill[],
   lang: Lang,
-  perspective: AssessmentPerspective
+  perspective: AssessmentPerspective,
 ): { subject: string; value: number; fullMark: number }[] {
   const scores = perspective === 'parent' ? assessment.parent_scores : assessment.instructor_scores;
   const nameKey = lang === 'he' ? 'name_he' : 'name_en';
+
   return skills.map((s) => ({
     subject: s[nameKey] || s.skill_id,
     value: scores[s.skill_id]?.score ?? 0,
@@ -197,14 +231,14 @@ export function getRadarDataForAssessment(
   }));
 }
 
-/** Combined draft radar data: Parent + Instructor from two score maps */
 export function getRadarDataFromDraftCombined(
   parentScores: Record<string, { score: number; note?: string }>,
   instructorScores: Record<string, { score: number; note?: string }>,
   skills: Skill[],
-  lang: Lang
+  lang: Lang,
 ): { subject: string; value: number; valueB: number; fullMark: number }[] {
   const nameKey = lang === 'he' ? 'name_he' : 'name_en';
+
   return skills.map((s) => ({
     subject: s[nameKey] || s.skill_id,
     value: parentScores[s.skill_id]?.score ?? 0,
@@ -213,13 +247,13 @@ export function getRadarDataFromDraftCombined(
   }));
 }
 
-/** Radar data from a scores map (e.g. draft form values). */
 export function getRadarDataFromScores(
   scores: Record<string, { score: number; note?: string }>,
   skills: Skill[],
-  lang: Lang
+  lang: Lang,
 ): { subject: string; value: number; fullMark: number }[] {
   const nameKey = lang === 'he' ? 'name_he' : 'name_en';
+
   return skills.map((s) => ({
     subject: s[nameKey] || s.skill_id,
     value: scores[s.skill_id]?.score ?? 0,
@@ -227,13 +261,13 @@ export function getRadarDataFromScores(
   }));
 }
 
-/** Radar data for combined view: Parent + Instructor on same assessment */
 export function getRadarDataCombined(
   assessment: Assessment,
   skills: Skill[],
-  lang: Lang
+  lang: Lang,
 ): { subject: string; value: number; valueB: number; fullMark: number }[] {
   const nameKey = lang === 'he' ? 'name_he' : 'name_en';
+
   return skills.map((s) => ({
     subject: s[nameKey] || s.skill_id,
     value: assessment.parent_scores[s.skill_id]?.score ?? 0,
@@ -242,17 +276,17 @@ export function getRadarDataCombined(
   }));
 }
 
-/** Combined radar data for two assessments with perspective selection */
 export function getRadarDataCompare(
   assessmentA: Assessment,
   assessmentB: Assessment,
   skills: Skill[],
   lang: Lang,
-  perspective: AssessmentPerspective
+  perspective: AssessmentPerspective,
 ): { subject: string; value: number; valueB: number; fullMark: number }[] {
   const scoresA = perspective === 'parent' ? assessmentA.parent_scores : assessmentA.instructor_scores;
   const scoresB = perspective === 'parent' ? assessmentB.parent_scores : assessmentB.instructor_scores;
   const nameKey = lang === 'he' ? 'name_he' : 'name_en';
+
   return skills.map((s) => ({
     subject: s[nameKey] || s.skill_id,
     value: scoresA[s.skill_id]?.score ?? 0,
@@ -278,18 +312,19 @@ export function addGroup(name: string): void {
 export function renameGroup(oldName: string, newName: string): void {
   const n = newName.trim();
   if (!n) return;
-  const students = state.students.map((s) =>
-    s.group_name === oldName ? { ...s, group_name: n } : s
-  );
+
+  const students = state.students.map((s) => (s.group_name === oldName ? { ...s, group_name: n } : s));
   const groupNames = (state.groupNames || []).map((g) => (g === oldName ? n : g));
+
   setState({ students, groupNames });
 }
 
 export function deleteGroup(name: string): void {
   const students = state.students.map((s) =>
-    s.group_name === name ? { ...s, group_name: '', active: '0' } : s
+    s.group_name === name ? { ...s, group_name: '', active: '0' } : s,
   );
   const groupNames = (state.groupNames || []).filter((g) => g !== name);
+
   setState({ students, groupNames });
 }
 
@@ -299,36 +334,32 @@ export function addStudent(student: Omit<Student, 'student_id'>): void {
 }
 
 export function updateStudent(studentId: string, updates: Partial<Student>): void {
-  const students = state.students.map((s) =>
-    s.student_id === studentId ? { ...s, ...updates } : s
-  );
+  const students = state.students.map((s) => (s.student_id === studentId ? { ...s, ...updates } : s));
   setState({ students });
 }
 
-/** Soft-delete: set student active to '0'. They no longer appear in groups. */
 export function deleteStudent(studentId: string): void {
   updateStudent(studentId, { active: '0' });
 }
 
-/** Remove all assessment rows for one assessment. */
 export function deleteAssessment(assessmentId: string): void {
   setState({
     assessmentRows: state.assessmentRows.filter((r) => r.assessment_id !== assessmentId),
   });
 }
 
-/** Update or add a perspective to an existing assessment. */
 export function updateAssessmentPerspective(
   assessmentId: string,
   studentId: string,
   dateIso: string,
   perspective: AssessmentPerspective,
-  scores: SkillScores
+  scores: SkillScores,
 ): void {
   const skills = getSkills();
   const filtered = state.assessmentRows.filter(
-    (r) => !(r.assessment_id === assessmentId && r.perspective === perspective)
+    (r) => !(r.assessment_id === assessmentId && r.perspective === perspective),
   );
+
   const rows: AssessmentRow[] = skills.map((s) => {
     const sc = scores[s.skill_id] ?? { score: 50, note: '' };
     return {
@@ -341,6 +372,7 @@ export function updateAssessmentPerspective(
       perspective,
     };
   });
+
   setState({ assessmentRows: [...filtered, ...rows] });
 }
 
@@ -348,11 +380,12 @@ export function addAssessment(
   studentId: string,
   dateIso: string,
   parentScores: SkillScores,
-  instructorScores: SkillScores
+  instructorScores: SkillScores,
 ): void {
   const aid = `assess_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
   const skills = getSkills();
   const rows: AssessmentRow[] = [];
+
   const addForPerspective = (pers: AssessmentPerspective, scores: SkillScores) => {
     if (Object.keys(scores).length === 0) return;
     skills.forEach((s) => {
@@ -368,8 +401,10 @@ export function addAssessment(
       });
     });
   };
+
   addForPerspective('parent', parentScores);
   addForPerspective('instructor', instructorScores);
+
   if (rows.length === 0) return;
   setState({ assessmentRows: [...state.assessmentRows, ...rows] });
 }
@@ -378,7 +413,6 @@ export function setStudents(students: Student[]): void {
   setState({ students });
 }
 
-/** Append imported students (e.g. from CSV with column mapping). Assigns new IDs. */
 export function appendStudents(students: Student[]): void {
   const withIds = students.map((s, i) => ({
     ...s,
@@ -393,15 +427,18 @@ export function setAssessmentRows(rows: AssessmentRow[]): void {
 
 function ensureIds(s: AppState): AppState {
   const studentIdMap = new Map<string, string>();
+
   const students = s.students.map((st, i) => {
     const id = st.student_id?.trim() || `student_${i + 1}`;
     if (st.student_id !== id) studentIdMap.set(st.student_id, id);
     return { ...st, student_id: id };
   });
+
   const rows = s.assessmentRows.map((r) => ({
     ...r,
     student_id: studentIdMap.get(r.student_id) ?? r.student_id,
   }));
+
   return { ...s, students, assessmentRows: rows };
 }
 
@@ -426,7 +463,6 @@ export function exportToCsv(): { skills: string; students: string; assessments: 
 
 export { getState, setState };
 
-/** React hook: subscribe to store and return current state for re-renders */
 export function useStoreSnapshot(): AppState {
   const [snapshot, setSnapshot] = useState(() => getState());
   useEffect(() => {

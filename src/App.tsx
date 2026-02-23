@@ -1,6 +1,5 @@
-import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { initStore, useStoreSnapshot, setLang } from "./data/store";
+import { useStoreSnapshot, setLang } from "./data/store";
 import { useT } from "./i18n/translations";
 import { useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -11,6 +10,7 @@ import KidProfile from "./components/KidProfile";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import AdminDashboard from "./pages/AdminDashboard";
+import AutoVerifyBanner from "./components/AutoVerifyBanner";
 import "./App.css";
 
 const BASENAME = import.meta.env.PROD ? "/empower/skills" : "";
@@ -18,10 +18,6 @@ const BASENAME = import.meta.env.PROD ? "/empower/skills" : "";
 export default function App() {
   const state = useStoreSnapshot();
   const { user, loading } = useAuth();
-
-  useEffect(() => {
-    initStore();
-  }, []);
 
   const lang = state.lang;
   const T = useT(lang);
@@ -34,6 +30,8 @@ export default function App() {
         <LangSwitch />
       </header>
 
+      <AutoVerifyBanner />
+
       <main className="app-main">
         <BrowserRouter basename={BASENAME}>
           <Routes>
@@ -44,9 +42,7 @@ export default function App() {
               path="/"
               element={
                 loading ? (
-                  <div style={{ padding: "2rem", textAlign: "center" }}>
-                    Loading…
-                  </div>
+                  <div style={{ padding: "2rem", textAlign: "center" }}>Loading…</div>
                 ) : user ? (
                   <Navigate to="/dashboard" replace />
                 ) : (
@@ -108,7 +104,7 @@ function LangSwitch() {
       <button
         type="button"
         className={lang === "he" ? "active" : ""}
-        onClick={() => setLang("he" as const)}
+        onClick={() => setLang("he")}
         aria-label="עברית"
       >
         {T.langHebrew}
@@ -117,7 +113,7 @@ function LangSwitch() {
       <button
         type="button"
         className={lang === "en" ? "active" : ""}
-        onClick={() => setLang("en" as const)}
+        onClick={() => setLang("en")}
         aria-label="English"
       >
         {T.langEnglish}

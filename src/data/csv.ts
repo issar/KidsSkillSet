@@ -1,6 +1,50 @@
 import type { Skill, Student, AssessmentRow, AssessmentPerspective, AppState, Lang } from '../types';
+import { DEFAULT_SKILLS } from './skills';
 
-const STORAGE_KEY = 'kidsskillset_app_state';
+export interface StoredState {
+  skills?: Skill[];
+  students?: Student[];
+  assessmentRows?: AssessmentRow[];
+  lang?: Lang;
+  groupNames?: string[];
+}
+
+/**
+ * Load app state from localStorage. Returns null if nothing exists or JSON parse fails.
+ */
+export function loadStateFromStorage(storageKey: string): AppState | null {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as StoredState;
+    return {
+      skills: Array.isArray(data.skills) && data.skills.length > 0 ? data.skills : [...DEFAULT_SKILLS],
+      students: Array.isArray(data.students) ? data.students : [],
+      assessmentRows: Array.isArray(data.assessmentRows) ? data.assessmentRows : [],
+      lang: data.lang === 'he' || data.lang === 'en' ? data.lang : 'he',
+      groupNames: Array.isArray(data.groupNames) ? data.groupNames : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Save app state to localStorage. Catches errors (quota, serialization) and does not crash.
+ */
+export function saveStateToStorage(storageKey: string, state: AppState): void {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify({
+      skills: state.skills,
+      students: state.students,
+      assessmentRows: state.assessmentRows,
+      lang: state.lang,
+      groupNames: state.groupNames,
+    }));
+  } catch (_) {
+    // quota exceeded, serialization error, etc. - fail silently
+  }
+}
 
 function escapeCsvCell(s: string): string {
   const str = String(s ?? '');
@@ -207,39 +251,3 @@ export function assessmentsToCsv(rows: AssessmentRow[]): string {
   return lines.join('\r\n');
 }
 
-export function loadStateFromStorage(): Partial<AppState> | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw) as StoredState;
-    return {
-      skills: data.skills ?? undefined,
-      students: data.students ?? undefined,
-      assessmentRows: data.assessmentRows ?? undefined,
-      lang: data.lang ?? undefined,
-      groupNames: data.groupNames ?? undefined,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export interface StoredState {
-  skills?: Skill[];
-  students?: Student[];
-  assessmentRows?: AssessmentRow[];
-  lang?: Lang;
-  groupNames?: string[];
-}
-
-export function saveStateToStorage(state: AppState): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      skills: state.skills,
-      students: state.students,
-      assessmentRows: state.assessmentRows,
-      lang: state.lang,
-      groupNames: state.groupNames,
-    }));
-  } catch (_) {}
-}
